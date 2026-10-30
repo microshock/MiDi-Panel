@@ -4,27 +4,26 @@ name: Build MiDi Panel APK
 on:
   workflow_dispatch:
   push:
-    paths:
-      - 'MiDiPanel-Android.zip'
-      - '.github/workflows/android.yml'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      
-      - name: Prepare Android project
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Find and extract project
         run: |
           ZIP_FILE=$(find . -maxdepth 3 -type f -iname '*.zip' | head -n 1)
 
           if [ -n "$ZIP_FILE" ]; then
-            echo "Найден архив: $ZIP_FILE"
             mkdir -p extracted
             unzip -o "$ZIP_FILE" -d extracted
           fi
@@ -32,47 +31,41 @@ jobs:
           PROJECT=$(find . -type f -path '*/app/build.gradle' | head -n 1)
 
           if [ -z "$PROJECT" ]; then
-            echo "ОШИБКА: Android-проект не найден"
+            echo "Android project not found!"
             find . -maxdepth 4 -type f
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$(dirname "$PROJECT")")
           echo "PROJECT_DIR=$GITHUB_WORKSPACE/$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Проект найден: $PROJECT_DIR"
 
+          echo "Project found: $PROJECT_DIR"
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         run: |
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
-          test -x "$SDKMANAGER"
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)
           yes | "$SDKMANAGER" --licenses || true
           "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
 
-      - name: Set up Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - name: Set up Gradle wrapper
-        working-directory: MiDiPanel-Android
+      - name: Generate Gradle wrapper
         run: |
+          cd "$PROJECT_DIR"
           gradle wrapper --gradle-version 8.11.1
           chmod +x gradlew
 
-      - name: Build debug APK
-        working-directory: MiDiPanel-Android
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Build APK
+        run: |
+          cd "$PROJECT_DIR"
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MiDi-Panel-debug-apk
-          path: MiDiPanel-Android/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
